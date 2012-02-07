@@ -18,4 +18,5 @@ After you've done a build, you can test it by just running:
 
 this will generate `heap-graph.dot` and `heap-graph.svg` files in the
 current directory.  open the svg file in your favorite web browser to
-take a look at the mono heap.
+take a look at the mono heap.  An example svg graph can be found
+[here](http://rdio.github.com/mono-heapdump/example-heap-graph.svg).
