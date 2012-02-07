@@ -23,6 +23,12 @@
 
 #include <stdio.h>
 #include <dlfcn.h>
+#include <mono/metadata/assembly.h>
+#include <mono/metadata/metadata-internals.h>
+#include <mono/metadata/class.h>
+#include <mono/metadata/class-internals.h>
+#include <mono/metadata/object-internals.h>
+#include <mono/utils/mono-internal-hash.h>
 #include <mono/metadata/object.h>
 #include <mono/metadata/sgen-gc.h>
 #include <mono/metadata/mono-gc.h>
@@ -33,6 +39,21 @@
 #define LOGW(...) do { fprintf (stderr, "> " __VA_ARGS__); fprintf (stderr, "\n"); } while (0)
 #endif
 
+
+/* taken directly from sgen-gc.c... */
+/* Root bitmap descriptors are simpler: the lower three bits describe the type
+ * and we either have 30/62 bitmap bits or nibble-based run-length,
+ * or a complex descriptor, or a user defined marker function.
+ */
+enum {
+	ROOT_DESC_CONSERVATIVE, /* 0, so matches NULL value */
+	ROOT_DESC_BITMAP,
+	ROOT_DESC_RUN_LEN, 
+	ROOT_DESC_COMPLEX,
+	ROOT_DESC_USER,
+	ROOT_DESC_TYPE_MASK = 0x7,
+	ROOT_DESC_TYPE_SHIFT = 3,
+};
 
 /*
  * this is nice for showing arrays as large rectangles with individual fields pointing to the proper objects,
@@ -71,7 +92,7 @@ init_mono_bindings ()
 	initialized = 1;
 
 #if ANDROID
-	const char *libmono_path = stringify(LIBMONO);
+	const char *libmono_path = stringify(LIBMONODROID);
 	LOGW ("dlopening %s", libmono_path);
 
 	void* libmono = dlopen (libmono_path, RTLD_LOCAL | RTLD_LAZY);
@@ -134,6 +155,13 @@ gc_callback (MonoObject *obj, MonoClass *klass, uintptr_t size, uintptr_t num, M
 
 	heap_walk_data->visited++;
 
+	if (!strcmp (_mono_class_get_namespace (klass), "System") &&
+	    !strcmp (_mono_class_get_name (klass), "MonoType")) {
+		// skip these, they bloat the graph
+		return;
+	}
+
+	    
 #if USE_SLOTS
  	fprintf (fp, "  node_%p [label=\"<f0> %p|<f1> %s.%s", obj, obj, _mono_class_get_namespace (klass), _mono_class_get_name (klass));
 	for (i = 0; i < num; i ++)
@@ -150,6 +178,158 @@ gc_callback (MonoObject *obj, MonoClass *klass, uintptr_t size, uintptr_t num, M
 	  	fprintf (fp, "  node_%p:f0 -> node_%p:f0;\n", obj, refs[i]);
 #endif
 	}
+}
+
+static void
+walk_class_static_data (MonoClass *klass, HeapWalkData *data)
+{
+	if (!klass->has_static_refs)
+		return;
+
+	FILE *fp = data->fp;
+
+	int need_class_node = 0;
+
+	MonoVTable *vtable = mono_class_try_get_vtable (mono_domain_get(), klass);
+	if (vtable == NULL)
+		return;
+
+	int desc = (int)vtable->gc_descr; // 32 bit specific here
+	void** static_data = vtable->data;
+
+	void** start_root = static_data;
+
+	switch (desc & ROOT_DESC_TYPE_MASK) {
+	case ROOT_DESC_BITMAP:
+		desc >>= ROOT_DESC_TYPE_SHIFT;
+		while (desc) {
+			if ((desc & 1) && *start_root)
+				need_class_node = 1;
+			desc >>= 1;
+			start_root++;
+		}
+		break;
+	case ROOT_DESC_COMPLEX: {
+#if false
+		gsize *bitmap_data = complex_descriptors + (desc >> ROOT_DESC_TYPE_SHIFT);
+		int bwords = (*bitmap_data) - 1;
+		void **start_run = start_root;
+		bitmap_data++;
+		while (bwords-- > 0) {
+			gsize bmap = *bitmap_data++;
+			void **objptr = start_run;
+			while (bmap) {
+				if ((bmap & 1) && *objptr)
+					need_class_node = 1;
+				bmap >>= 1;
+				++objptr;
+			}
+			start_run += GC_BITS_PER_WORD;
+		}
+#endif
+		break;
+	}
+	case ROOT_DESC_USER: {
+		break;
+	}
+	case ROOT_DESC_RUN_LEN:
+		break;
+	default:
+		g_assert_not_reached ();
+	}
+
+	if (need_class_node) {
+		LOGW ("adding static class for %s to the graph", mono_class_get_name (klass));
+		fprintf (fp, "  node_%p [label=\"<f0> static data|<f1> %s.%s\", color=\"red\"];\n", klass, _mono_class_get_namespace (klass), _mono_class_get_name (klass));
+
+		desc = (int)vtable->gc_descr; // 32 bit specific here
+		start_root = static_data;
+
+		switch (desc & ROOT_DESC_TYPE_MASK) {
+		case ROOT_DESC_BITMAP:
+			desc >>= ROOT_DESC_TYPE_SHIFT;
+			while (desc) {
+				if ((desc & 1) && *start_root) {
+					void *obj = *start_root;
+					char extra[256];
+					extra[0] = 0;
+
+					if (mono_gchandle_is_in_domain ((int)obj, mono_domain_get ())) {
+						snprintf (extra, sizeof(extra), "[label=\"gchandle %p\"]", obj);
+						obj = mono_gchandle_get_target ((int)obj);
+					}
+					fprintf (fp, "  node_%p:f0 -> node_%p:f0;\n", klass, obj);
+				}
+				desc >>= 1;
+				start_root++;
+			}
+			break;
+		case ROOT_DESC_COMPLEX: {
+#if false
+			gsize *bitmap_data = complex_descriptors + (desc >> ROOT_DESC_TYPE_SHIFT);
+			int bwords = (*bitmap_data) - 1;
+			void **start_run = start_root;
+			bitmap_data++;
+			while (bwords-- > 0) {
+				gsize bmap = *bitmap_data++;
+				void **objptr = start_run;
+				while (bmap) {
+					if ((bmap & 1) && *objptr) {
+						void *obj = *objptr;
+						char extra[256];
+						extra[0] = 0;
+
+						if (mono_gchandle_is_in_domain ((int)obj, mono_domain_get ())) {
+							snprintf (extra, sizeof(extra), "[label=\"gchandle %p\"]", obj);
+							obj = mono_gchandle_get_target ((int)obj);
+						}
+						fprintf (fp, "  node_%p:f0 -> node_%p:f0;\n", klass, obj);
+					}
+					bmap >>= 1;
+					++objptr;
+				}
+				start_run += GC_BITS_PER_WORD;
+			}
+#endif
+			break;
+		}
+		case ROOT_DESC_USER: {
+			break;
+		}
+		case ROOT_DESC_RUN_LEN:
+			break;
+		default:
+			g_assert_not_reached ();
+		}
+	}
+}
+
+static void
+walk_assembly_class_static_data (MonoAssembly* assembly, HeapWalkData *data)
+{
+	MonoImage *image = mono_assembly_get_image (assembly);
+	MonoInternalHashTable *class_cache = &image->class_cache;
+	int i;
+
+	LOGW ("%d classes in assembly %p", class_cache->num_entries, assembly);
+
+	for (i = 0; i < class_cache->size; i ++) {
+		MonoClass *klass;
+
+		for (klass = class_cache->table [i];
+		     klass != NULL;
+		     klass = *(class_cache->next_value (klass))) {
+
+			walk_class_static_data (klass, data);
+		}
+	}
+
+}
+
+static void
+walk_all_class_static_data (HeapWalkData *data)
+{
+	mono_assembly_foreach ((MonoFunc)walk_assembly_class_static_data, data);
 }
 
 void
@@ -179,13 +359,11 @@ generate_heap_dump (char *path)
 	data.references = 0;
 	data.fp = fp;
 
-	/*
-	 * FIXME this isn't perfect.  most notably it doesn't scan
-	 * from (or rather, doesn't *report*) references in static
-	 * class data.  we'll need to grovel around for that someplace
-	 * else.
-	 */
+	// walk over all instances in the heap
 	_mono_gc_walk_heap (0, gc_callback, &data);
+
+	// now generate nodes for the static data for all loaded classes (only generate the node if we need to, though)
+	walk_all_class_static_data (&data);
 
 	fprintf (fp, "}\n");
 	fclose(fp);

@@ -28,6 +28,9 @@ using System.Threading;
 using System.Runtime.InteropServices;
 using System.IO;
 
+#if ANDROID
+#endif
+
 namespace MonoGC {
 	public class Poker {
 		public static void GenerateHeapDump ()
@@ -43,7 +46,7 @@ namespace MonoGC {
 
 			try {
 #if ANDROID
-				generate_heap_dump ("@ANDROID_DUMP_PATH@");
+				generate_heap_dump ("@ANDROID_DUMP_PATH@/heap-graph.dot");
 #else
 				generate_heap_dump ("heap-graph.dot");
 #endif
@@ -51,6 +54,9 @@ namespace MonoGC {
 			catch (DllNotFoundException) {
 				Console.Error.WriteLine ("couldn't find libpoker.");
 			}
+#if ANDROID
+			Android.OS.Debug.DumpHprofData ("@ANDROID_DUMP_PATH@/java-heap.hprof");
+#endif
 		}
 
 #if ANDROID
