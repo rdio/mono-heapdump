@@ -95,18 +95,14 @@ init_mono_bindings ()
 	 */
 	_mono_sgen_gc_lock = (gc_lock_func)(mono_gc_enable_events + 0x74);
 	_mono_sgen_gc_unlock = (gc_lock_func)(mono_gc_enable_events + 0x60);
-	_mono_gc_walk_heap = dlsym (libmono, "mono_gc_walk_heap");
-	_mono_class_get_namespace = dlsym (libmono, "mono_class_get_namespace");
-	_mono_class_get_name = dlsym (libmono, "mono_class_get_name");
-	_mono_object_get_class = dlsym (libmono, "mono_object_get_class");
 #else
 	_mono_sgen_gc_lock = dlsym (libmono, "mono_sgen_gc_lock");
 	_mono_sgen_gc_unlock = dlsym (libmono, "mono_sgen_gc_unlock");
+#endif
 	_mono_gc_walk_heap = dlsym (libmono, "mono_gc_walk_heap");
 	_mono_class_get_namespace = dlsym (libmono, "mono_class_get_namespace");
 	_mono_class_get_name = dlsym (libmono, "mono_class_get_name");
 	_mono_object_get_class = dlsym (libmono, "mono_object_get_class");
-#endif
 
 	LOGW ("mono_sgen_gc_lock %s", _mono_sgen_gc_lock ? "FOUND" : "NOT FOUND");
 	LOGW ("mono_sgen_gc_unlock %s", _mono_sgen_gc_unlock ? "FOUND" : "NOT FOUND");
