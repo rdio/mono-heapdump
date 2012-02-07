@@ -1,0 +1,9 @@
+*~
+MonoGCPoker-android*
+MonoGCPoker-osx*
+libpoker.*
+poker.o.*
+*.exe
+*.mdb
+*.dot
+*.svg
