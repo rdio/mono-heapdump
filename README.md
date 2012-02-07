@@ -1,20 +1,16 @@
 
-Get mono heap dumps as pretty graphs
-------------------------------------
+# Get mono heap dumps as pretty graphs
 
-External Dependencies:
-======================
+## External Dependencies:
 
 You need the graphviz package, available [here](http://graphviz.org/Download.php).
 
-To build:
-=========
+## To build:
 
   `$ make MONO_SOURCE=/path/to/your/mono/source/checkout`
 
 
-To test:
-========
+## To test:
 
 After you've done a build, you can test it by just running:
 
