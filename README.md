@@ -1,4 +1,3 @@
-
 # Get mono heap dumps as pretty graphs
 
 ## External Dependencies:
@@ -20,3 +19,11 @@ this will generate `heap-graph.dot` and `heap-graph.svg` files in the
 current directory.  open the svg file in your favorite web browser to
 take a look at the mono heap.  An example svg graph can be found
 [here](http://rdio.github.com/mono-heapdump/example-heap-graph.svg).
+
+## To use it:
+
+At the point in your programs execution where you want to capture a heap
+graph, just call `MonoGC.Poker.GenerateHeapDump()`.  You'll want to add
+MonoGCPoker-*platform*.dll as a reference, and make sure you have libpoker.dylib
+(or .so) in your library load path -- on OSX this means setting DYLD_FALLBACK_LIBRARY_PATH
+to the path of the directory containing libpoker.dylib.
